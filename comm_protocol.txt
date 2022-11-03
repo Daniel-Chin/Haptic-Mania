@@ -1,0 +1,25 @@
+Arduino is requester, python is responder. 
+
+After a note, if the next note is >50ms after, arduino requests. 
+
+About byte range:
+  Range is [1, 127] because 
+    < 128 for Serial limitations, 
+    != 0 for null terminated string shenanigans. 
+
+encodeTime: int -> str[3]
+
+ardu -> py:
+  '\n'
+    reset. 
+  'r' + encodeTime(current_time: int)
+    request.
+
+py -> ardu: 
+  '\n'
+    over. 
+  'n' + note_time + note_position
+    One note. 
+    note_time: str = encodeTime(note_time: int)
+    note_position: char = '0' + note_position: int
+    // we don't need on/off info, since it's toggle. 

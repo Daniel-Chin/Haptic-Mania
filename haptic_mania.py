@@ -1,8 +1,14 @@
 from os import path
-from typing import List
+from typing import List, Tuple
 from time import time, sleep
 
+import serial
+
 from osu_parser.beatmapparser import BeatmapParser
+
+PORT = 'COM4'
+LOOK_AHEAD = 1000
+SONG_OFFSET = 4000
 
 K = 4
 BEATMAP_DIR = path.abspath(
@@ -15,6 +21,7 @@ MAP_PATH = path.join(
 
 CIRCLE = 'circle'
 MANIA_SLIDER = 'mania_slider'
+TIME_LEN = 3
 
 class HitObject:
     def __init__(self, o, /):
@@ -24,7 +31,7 @@ class HitObject:
             self.object_type = MANIA_SLIDER
         else:
             raise ValueError(o['object_name'])
-        self.startTime = o['startTime']
+        self.start_time = o['startTime']
         if self.object_type is MANIA_SLIDER:
             self.end_time = o['end_time']
 
@@ -35,8 +42,31 @@ class HitObject:
         self.position = round(position)
         assert position - self.position == 0.0
 
+def flatten(hObs: List[HitObject], click_duration=50):
+    results: List[Tuple[int, int]] = []
+
+    # Hold "`"
+    results.append((0, 0))
+    results.append((2000, 0))
+
+    for hOb in hObs:
+        results.append((
+            hOb.start_time + SONG_OFFSET, 
+            hOb.position, 
+        ))
+        if hOb.object_type is MANIA_SLIDER:
+            release_t = hOb.end_time
+        else:
+            release_t = hOb.start_time + click_duration
+        results.append((
+            release_t + SONG_OFFSET, 
+            hOb.position, 
+        ))
+    results.sort(key = lambda x : x[0])
+    return results
+
 def preview(hObs: List[HitObject]):
-    CLICK_HOLD_TIME = 100
+    CLICK_HOLD_TIME = 50
 
     start = time()
     song = iter(hObs)
@@ -50,7 +80,7 @@ def preview(hObs: List[HitObject]):
         )
     while True:
         t = round((time() - start) * 1000)
-        if t >= hOb.startTime:
+        if t >= hOb.start_time:
             if hOb.object_type is CIRCLE:
                 ttr = t + CLICK_HOLD_TIME
             else:
@@ -68,6 +98,54 @@ def main():
     parser.parseFile(MAP_PATH)
     map = parser.build_beatmap()
     hObs = [HitObject(x) for x in map['hitObjects']]
-    preview(hObs)
+    toggles = flatten(hObs)
+
+    with serial.Serial(PORT, 9600, timeout=1) as s:
+        print('Serial opened:', s.name)
+        handshake(s)
+        while True:
+            song = iter(toggles)
+            while True:
+                head = s.read(1)
+                if head == b'\n':
+                    break
+                if head == b'r':
+                    t = decodeTime(s.read(TIME_LEN))
+                    while True:
+                        toggle_t, toggle_pos = next(song)
+                        s.write(b'n')
+                        s.write(encodeTime(toggle_t))
+                        s.write(bytes([b'0123'[toggle_pos]]))
+                        if toggle_t >= t + LOOK_AHEAD:
+                            s.write(b'\n')
+                            break
+                else:
+                    raise ValueError(head)
+
+def handshake(s: serial.Serial):
+    s.write(b'hi arduino')
+    expecting = [*'hi python']
+    while expecting:
+        if s.in_waiting:
+            recved = s.read(1)
+            expected = expecting.pop(0)
+            if recved != expected:
+                raise ValueError((recved, expected))
+        else:
+            sleep(.1)
+
+def encodeTime(t):
+    buf = []
+    for _ in range(TIME_LEN):
+        x = t % 126
+        buf.append(x + 1)
+        t //= 126
+    return bytes(buf)
+
+def decodeTime(x: bytes):
+    acc = 0
+    for i, char in enumerate(x):
+        acc += char * 126 ** (i - 1)
+    return acc
 
 main()
