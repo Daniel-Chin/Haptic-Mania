@@ -120,6 +120,7 @@ def main():
                     input('Press Enter to start, ctrl+C to quit...')
                 except KeyboardInterrupt:
                     return
+                assert s.read(1) == b'r'
                 s.write(b'b')
 
 def handshake(s: serial.Serial):

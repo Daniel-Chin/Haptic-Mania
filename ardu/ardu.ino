@@ -66,10 +66,9 @@ bool loaded = false;
 bool song_ended = false;
 long start_time = 0;
 void loop() {
-  if (! loaded) {
+  while (! loaded) {
     song_ended = false;
     load();
-    loaded = true;
     delay(1000);
     start_time = millis();
   }
@@ -80,9 +79,6 @@ void loop() {
     // note
     int pos = buf_pos[buf_pop_i];
     accCircularPointer(& buf_pop_i);
-    if (buf_pop_i == buf_push_i) {
-      fatalError("buf underflow");
-    }
     static const int FINGER_MAP = {1, 0, 3, 4};
     int servo_id = FINGER_MAP[pos];
     t = millis() - start_time;  // update time estimates
@@ -91,8 +87,15 @@ void loop() {
       delay(dt);
     }
     toggleServo(servo_id);
+    if (buf_pop_i == buf_push_i) {
+      if (song_ended) {
+        loaded = false;
+      } else {
+        fatalError("buf underflow");
+      }
+    }
   } else {
-    if (bufAvailable()) {
+    if (! song_ended && bufAvailable()) {
       request();
     }
   }
@@ -113,9 +116,13 @@ void accCircularPointer(int* x) {
 }
 
 void load() {
+  loaded = true;
   buf_push_i = 0;
   for (int _ = 0; _ < BUF_SIZE - 1; _ ++) {
     request();
+    if (! loaded) {
+      return;
+    }
   }
   buf_pop_i = 0;
 }
