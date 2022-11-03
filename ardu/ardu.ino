@@ -1,12 +1,13 @@
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
 
+#define PREP_TIME 50
 #define N_SERVOS 6
 const int SERVO_PINS[N_SERVOS] = {10,11,12,13,14,15};
 const int DEG_UP[N_SERVOS] = {31,27,135,144,137,0};
 const int DEG_DO[N_SERVOS] = {144,131,0,31,27,135};
 int PULSE[2 * N_SERVOS] = {0};
-byte servo_state[N_SERVOS] = {1};
+int servo_state[N_SERVOS] = {1};
 
 #define MINPULSE 150 // This is the 'minimum' pulse length count (out of 4096)
 #define MAXPULSE 600 // This is the 'maximum' pulse length count (out of 4096)
@@ -17,10 +18,10 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
 bool hand_shaked = false;
 #define BUF_SIZE 64
-byte buf_pop_i  = 0;
-byte buf_push_i = 0;
-int  buf_time[BUF_SIZE] = {0};
-byte buf_pos [BUF_SIZE] = {0};
+int buf_push_i = 0;
+int buf_pop_i = 0;
+int buf_time[BUF_SIZE] = {0};
+int buf_pos [BUF_SIZE] = {0};
 
 void setup() {
   pwm.begin();
@@ -40,8 +41,8 @@ void setup() {
 }
 
 void handShake() {
-  String expecting = "hi arduino";
-  int len = expecting.length();
+  char* expecting = "hi arduino";
+  int len = 10; // exclude the terminating \x00
   for (int i = 0; i < len; i++) {
     if (readOne() != expecting[i]) {
       _abort = true;
@@ -61,7 +62,90 @@ char readOne() {    // blocking
   return (char) recved;
 }
 
+bool loaded = false;
+bool song_ended = false;
+long start_time = 0;
 void loop() {
+  if (! loaded) {
+    song_ended = false;
+    load();
+    loaded = true;
+    delay(1000);
+    start_time = millis();
+  }
+  int note_time = buf_time[buf_pop_i];
+  int t = millis() - start_time;
+  int dt = note_time - t;
+  if (dt <= PREP_TIME) {
+    // note
+    int pos = buf_pos[buf_pop_i];
+    accCircularPointer(& buf_pop_i);
+    if (buf_pop_i == buf_push_i) {
+      fatalError("buf underflow");
+    }
+    static const int FINGER_MAP = {1, 0, 3, 4};
+    int servo_id = FINGER_MAP[pos];
+    t = millis() - start_time;  // update time estimates
+    dt = note_time - t;
+    if (dt > 0) {
+      delay(dt);
+    }
+    toggleServo(servo_id);
+  } else {
+    if (bufAvailable()) {
+      request();
+    }
+  }
+}
+
+int bufAvailable() {
+  int x = buf_pop_i - buf_push_i;
+  if (x == 1) return false;
+  if (x == 1 - BUF_SIZE) return false;
+  return true;
+}
+
+void accCircularPointer(int* x) {
+  *x ++;
+  if (*x == BUF_SIZE) {
+    *x -= BUF_SIZE;
+  }
+}
+
+void load() {
+  buf_push_i = 0;
+  for (int _ = 0; _ < BUF_SIZE - 1; _ ++) {
+    request();
+  }
+  buf_pop_i = 0;
+}
+
+void request() {
+  Serial.write('r');
+  switch (readOne()) {
+    case '!':
+      loaded = false;
+      break;
+    case 'n':
+      static char* time_bytes = new char[4];
+      serial.readBytes(time_bytes, 3);
+      buf_time[buf_push_i] = decodeTime(time_bytes);
+      buf_pos [buf_push_i] = decodeDigit(readOne());
+      accCircularPointer(& buf_push_i);
+      break;
+    case 'e':
+      song_ended = true;
+      break;
+    default:
+      fatalError("error 389t5hqw");
+  }
+}
+
+void fatalError(char* msg) {
+  while (true) {
+    Serial.println(msg);
+    delay(1000);
+  }
 }
 
 void mySerialEvent() {

@@ -7,7 +7,6 @@ import serial
 from osu_parser.beatmapparser import BeatmapParser
 
 PORT = 'COM4'
-LOOK_AHEAD = 1000
 SONG_OFFSET = 4000
 
 K = 4
@@ -104,23 +103,24 @@ def main():
         print('Serial opened:', s.name)
         handshake(s)
         while True:
-            song = iter(toggles)
-            while True:
-                head = s.read(1)
-                if head == b'\n':
-                    break
-                if head == b'r':
-                    t = decodeTime(s.read(TIME_LEN))
-                    while True:
+            try:
+                song = iter(toggles)
+                while True:
+                    assert s.read(1) == b'r'
+                    try:
                         toggle_t, toggle_pos = next(song)
-                        s.write(b'n')
-                        s.write(encodeTime(toggle_t))
-                        s.write(bytes([b'0123'[toggle_pos]]))
-                        if toggle_t >= t + LOOK_AHEAD:
-                            s.write(b'\n')
-                            break
-                else:
-                    raise ValueError(head)
+                    except StopIteration:
+                        s.write(b'e')
+                        break
+                    s.write(b'n')
+                    s.write(encodeTime(toggle_t))
+                    s.write(bytes([b'0123'[toggle_pos]]))
+            except KeyboardInterrupt:
+                try:
+                    input('Press Enter to start, ctrl+C to quit...')
+                except KeyboardInterrupt:
+                    return
+                s.write(b'b')
 
 def handshake(s: serial.Serial):
     s.write(b'hi arduino')
