@@ -4,8 +4,13 @@
 #define PREP_TIME 50
 #define N_SERVOS 6
 const int SERVO_PINS[N_SERVOS] = {10,11,12,13,14,15};
-const int DEG_UP[N_SERVOS] = {31,27,135,144,137,0};
-const int DEG_DO[N_SERVOS] = {144,131,0,31,27,135};
+
+// const int DEG_UP[N_SERVOS] = {31,27,135,144,137,0};
+// const int DEG_DO[N_SERVOS] = {144,131,0,31,27,135};
+
+const int DEG_UP[N_SERVOS] = {41,37,125,134,127,10};
+const int DEG_DO[N_SERVOS] = {81,77, 85, 94, 87,50};
+
 int PULSE[2 * N_SERVOS] = {0};
 int servo_state[N_SERVOS] = {1};
 
@@ -33,8 +38,13 @@ void setup() {
   }
 
   for (int i = 0; i < N_SERVOS; i++) {
+    servo_state[i] = 1;
     toggleServo(i);
   }
+//   delay(1000);
+//   for (int i = 0; i < N_SERVOS; i++) {
+//     toggleServo(i);
+//   }
 
   Serial.begin(9600);
   handShake();
@@ -45,9 +55,7 @@ void handShake() {
   int len = 10; // exclude the terminating \x00
   for (int i = 0; i < len; i++) {
     if (readOne() != expecting[i]) {
-      _abort = true;
       fatalError("Handshake failed! ");
-      return;
     }
   }
   Serial.print("hi python");
@@ -69,7 +77,8 @@ void loop() {
   while (! loaded) {
     song_ended = false;
     load();
-    delay(1000);
+    Serial.write('s');
+    readOne();
     start_time = millis();
   }
   int note_time = buf_time[buf_pop_i];
@@ -79,7 +88,8 @@ void loop() {
     // note
     int pos = buf_pos[buf_pop_i];
     accCircularPointer(& buf_pop_i);
-    static const int FINGER_MAP = {1, 0, 3, 4};
+    // debugPrint("pop_i=", buf_pop_i);
+    static const int FINGER_MAP[4] = {1, 0, 3, 4};
     int servo_id = FINGER_MAP[pos];
     t = millis() - start_time;  // update time estimates
     dt = note_time - t;
@@ -109,9 +119,9 @@ int bufAvailable() {
 }
 
 void accCircularPointer(int* x) {
-  *x ++;
+  (*x) ++;
   if (*x == BUF_SIZE) {
-    *x -= BUF_SIZE;
+    (*x) -= BUF_SIZE;
   }
 }
 
@@ -129,22 +139,24 @@ void load() {
 
 void request() {
   Serial.write('r');
-  switch (readOne()) {
+  char head = readOne();
+  switch (head) {
     case '!':
       loaded = false;
       break;
     case 'n':
       static char* time_bytes = new char[4];
-      serial.readBytes(time_bytes, 3);
+      Serial.readBytes(time_bytes, 3);
       buf_time[buf_push_i] = decodeTime(time_bytes);
       buf_pos [buf_push_i] = decodeDigit(readOne());
       accCircularPointer(& buf_push_i);
+      // debugPrint("push_i=", buf_push_i);
       break;
     case 'e':
       song_ended = true;
       break;
     default:
-      fatalError("error 389t5hqw");
+      fatalError((char*) ("Unexpected header: " + head));
   }
 }
 
@@ -153,11 +165,6 @@ void fatalError(char* msg) {
     Serial.println(msg);
     delay(1000);
   }
-}
-
-void mySerialEvent() {
-  if (! hand_shaked) return;
-
 }
 
 int decodeDigit(char x) {
@@ -177,4 +184,14 @@ void toggleServo(int id) {
   pwm.setPWM(SERVO_PINS[id], 0, PULSE[
     servo_state[id] * N_SERVOS + id
   ]);
+}
+
+void debugPrint(String k, int v) {
+  Serial.write('d');
+  Serial.print(k);
+  String _v = String(v);
+  Serial.print(_v);
+  for (int i = 16 - k.length() - _v.length(); i > 0; i --) {
+    Serial.write('_');
+  }
 }

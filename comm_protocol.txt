@@ -12,10 +12,16 @@ encodeTime: int -> str[3]
 ardu -> py:
   'r'
     request.
+  's'
+    ready to start.
+  'd'
+    debug message. 16 bytes. 
 
 py -> ardu: 
   '!'
     restart.
+  's'
+    start.
   'n' + note_time + note_position
     One note. 
     note_time: str = encodeTime(note_time: int)
